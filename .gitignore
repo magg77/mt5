@@ -1,0 +1,115 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Virtual Environments
+.env
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Django-specific files
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+*.log
+
+# Ignore migrations (optional, if you want to exclude them)
+**/migrations/*.pyc
+**/migrations/*.pyo
+**/migrations/*.log
+**/migrations/__pycache__/
+
+# Gunicorn log files
+gunicorn.log
+gunicorn.access.log
+gunicorn.error.log
+
+# Django secret key file (if stored separately)
+.env.secret
+
+# pytest, coverage, and test reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# MyPy cache
+.mypy_cache/
+
+# Celery
+celerybeat-schedule.*
+
+# VS Code settings
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.history/
+
+# PyCharm settings
+.idea/
+.idea/**/workspace.xml
+.idea/**/tasks.xml
+.idea/**/usage.statistics.xml
+.idea/**/dictionaries/
+.idea/**/shelf/
+.idea/**/dataSources/
+.idea/**/dataSources.ids
+.idea/**/dataSources.local.xml
+.idea/**/sqlDataSources.xml
+.idea/**/dynamic.xml
+.idea/**/uiDesigner.xml
+.idea/**/dbnavigator.xml
+
+# System files
+.DS_Store
+Thumbs.db
+
+# AWS credentials (if applicable)
+*.pem
+
+
+*.dump
+*.sql
