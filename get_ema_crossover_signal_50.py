@@ -194,8 +194,37 @@ def verificar_y_mover_sl(symbol):
             print(f"🔁 SL movido a BE en {symbol} (ticket: {pos.ticket})")
 
 
+def get_ema_and_slope(data: pd.DataFrame, period: int):
+    """Calcula la EMA y su pendiente."""
+    data['EMA'] = data['close'].ewm(span=period, adjust=False).mean()
+    data['EMA_slope'] = data['EMA'].diff()
+    return data
+
+def is_trending(slope: float, threshold: float = 0.1):
+    """Determina si hay una tendencia clara basado en la pendiente de la EMA."""
+    return abs(slope) >= threshold
+
+#Esto dice: "Solo opero si la pendiente es al menos el 20% del rango reciente de precios (ATR)..."
+# múltiplo del ATR, que mide la volatilidad reciente del precio, para adaptar el umbral según el mercado
+def is_trending_dynamic(data: pd.DataFrame, slope: float, multiplier: float = 0.2) -> bool:
+    """Evalúa si la pendiente es significativa comparada con la volatilidad (ATR)."""
+    atr = data['high'].rolling(14).max() - data['low'].rolling(14).min()
+    atr_value = atr.iloc[-1]
+    
+    print(f" +++++++++++++ pendiente ema50 = {slope}")
+    print(f" +++++++++++++ valor del atr = {(atr_value * multiplier)}")
+    
+    return abs(slope) >= (atr_value * multiplier)
+
+
+def detect_cross(prev, curr):
+    """Detecta cruce de EMA."""
+    cross_above = prev['close'] < prev['EMA'] and curr['close'] > curr['EMA']
+    cross_below = prev['close'] > prev['EMA'] and curr['close'] < curr['EMA']
+    return cross_above, cross_below
+
 def process_symbol(symbol):
-    """Procesa un símbolo individual: verifica cruce de EMA y opera."""
+    """Procesa un símbolo individual: verifica cruce de EMA, pendiente y opera."""
     if symbol not in LOTES_POR_SIMBOLO:
         print(f"⚠️ Símbolo no configurado: {symbol}")
         return
@@ -206,16 +235,20 @@ def process_symbol(symbol):
         return
 
     data = pd.DataFrame(rates)
-    data['EMA'] = get_ema(data, EMA_PERIOD)
+    data = get_ema_and_slope(data, EMA_PERIOD)
 
     prev = data.iloc[-2]
     curr = data.iloc[-1]
 
-    cross_above = prev['close'] < prev['EMA'] and curr['close'] > curr['EMA']
-    cross_below = prev['close'] > prev['EMA'] and curr['close'] < curr['EMA']
+    cross_above, cross_below = detect_cross(prev, curr)
+    ema_slope = curr['EMA_slope']
 
-    if not cross_above and not cross_below:
+    if not (cross_above or cross_below):
         print(f"🔍 Sin cruce en {symbol}")
+        return
+
+    if not is_trending_dynamic(data, ema_slope):
+        print(f"🧭 Pendiente débil en {symbol} ({ema_slope:.5f}) - evitamos operar")
         return
 
     order_type = mt5.ORDER_TYPE_BUY if cross_above else mt5.ORDER_TYPE_SELL
@@ -228,8 +261,9 @@ def process_symbol(symbol):
 
     lot_config = LOTES_POR_SIMBOLO[symbol]
     lot_size = get_valid_lot_size(symbol, lot_config)
-    print(f"🛒 Ejecutando orden en {symbol}: {'BUY' if order_type == mt5.ORDER_TYPE_BUY else 'SELL'} con lote {lot_size}")
+    print(f"🛒 Ejecutando orden en {symbol}: {'BUY' if order_type == mt5.ORDER_TYPE_BUY else 'SELL'} con lote {lot_size} (pendiente EMA: {ema_slope:.5f})")
     place_order(symbol, lot_size, order_type, STOP_LOSS_PIPS, TAKE_PROFIT_PIPS, data)
+
 
 def main_loop():
     """Bucle principal que itera constantemente procesando todos los símbolos."""
