@@ -1,0 +1,191 @@
+
+# 0.01 = XAUUSD /   XAGUSD  /   USD/JPY
+# 0.0001 = EUR/USD, GBP/USD
+
+import MetaTrader5 as mt5
+import time
+import pandas as pd
+import matplotlib.pyplot as plt
+import MetaTrader5 as mt5
+import requests
+
+#path
+MT5_PATH_C = "C:\\Program Files\\MetaTrader 5 EXNESS\\terminal64.exe"
+
+# Reemplaza con tu token y chat_id de Telegram
+TELEGRAM_TOKEN = '7794506489:AAHxx5nwReKHyrEPr8eNSXPfUBiFizgQkeY'
+TELEGRAM_CHAT_ID = '7896485263'
+
+# --- Configuración del bot ---
+LOTES_POR_SIMBOLO = {
+    "XAUUSD": 0.01
+}
+SYMBOLS = list(LOTES_POR_SIMBOLO.keys())
+
+#orden
+STOP_LOSS_PIPS = 4000
+TAKE_PROFIT_PIPS = 4000
+
+#tiempos
+INTERVAL_SECONDS = 3
+SLEEP_INTERVAL = 2
+TIMEFRAME = mt5.TIMEFRAME_M1
+
+#logica desicion
+EMA_PERIOD = 50
+NUMBER_OF_CANDLES = 5000
+
+#mover stop loss dinamicamente a break-even
+LAST_ORDER_INFO = {}  # Guarda el índice de vela y detalles de última orden por símbolo
+NUMBER_CANDLES_MOVE_STOPLOSS = 3
+
+PREV_TENDENCIA = {}
+
+
+
+def init_mt5():
+    """Inicializa la conexión con MetaTrader 5."""
+    if not mt5.initialize(path=MT5_PATH_C):
+        print("❌ No se pudo inicializar MetaTrader 5")
+        quit()
+    else:
+        print(f"✅ MetaTrader 5 inicializado correctamente: {mt5.terminal_info()}")
+
+
+def send_telegram_message(message: str):
+    """Envía un mensaje a Telegram usando la API de Telegram."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message
+    }
+    response = requests.post(url, data=payload)
+    
+    if response.status_code == 200:
+        print("✅ Mensaje enviado a Telegram")
+    else:
+        print(f"❌ Error al enviar mensaje: {response.status_code}")
+        
+def is_long_legged_doji(candle) -> bool:
+    """
+    Detecta si una vela es un Long Legged Doji.
+    Retorna True si lo es, False en caso contrario.
+    """
+    open_price = candle['open']
+    close_price = candle['close']
+    high_price = candle['high']
+    low_price = candle['low']
+
+    body = abs(open_price - close_price)
+    range_ = high_price - low_price
+    upper_shadow = high_price - max(open_price, close_price)
+    lower_shadow = min(open_price, close_price) - low_price
+    
+    
+    is_small_body = body < range_ * 0.1
+    is_long_shadows = upper_shadow > body * 2 and lower_shadow > body * 2
+    
+    print(f"📏 Cuerpo pequeño: {body:.2f} < {range_ * 0.1:.2f} ? ➡️ {is_small_body}")
+    print(f"📏 Validación sombras largas: upper={upper_shadow:.2f} > body*2={body*2:.2f} "
+      f"AND lower={lower_shadow:.2f} > body*2={body*2:.2f} ➡️ {is_long_shadows}")
+    print(f"tipo de vela: {get_candle_color(candle)}")
+
+    return is_small_body and is_long_shadows
+
+def is_engulfing(current, previous) -> bool:
+    """
+    Verifica si la vela actual es envolvente respecto a la anterior.
+    Retorna True si lo es, False en caso contrario.
+    """
+    open_curr = current['open']
+    close_curr = current['close']
+    open_prev = previous['open']
+    close_prev = previous['close']
+
+    # Engulfing alcista
+    is_bullish = close_curr > open_curr and close_prev < open_prev and open_curr < close_prev and close_curr > open_prev
+
+    # Engulfing bajista
+    is_bearish = close_curr < open_curr and close_prev > open_prev and open_curr > close_prev and close_curr < open_prev
+
+    return is_bullish or is_bearish
+
+def get_candle_color(candle: dict) -> str:
+    """Devuelve 'bullish' si es alcista, 'bearish' si es bajista, o 'neutral' si es doji."""
+    open_price = candle['open']
+    close_price = candle['close']
+    if close_price > open_price:
+        return 'bullish'
+    elif close_price < open_price:
+        return 'bearish'
+    else:
+        return 'neutral'
+
+        
+def evaluate_candles(symbol, rates):
+    """Evalúa si la penúltima vela es Long Legged Doji y la última es envolvente."""
+    if len(rates) < 2:
+        print(f"⚠️ No hay suficientes velas para analizar en {symbol}")
+        return
+
+    # Penúltima y última vela cerradas
+    previous = rates[-2]
+    current = rates[-1]
+
+    if is_long_legged_doji(previous):
+        print(f"🚨 Long Legged Doji detectado en la penúltima vela en {symbol}")
+
+        if is_engulfing(current, previous):
+            print(f"📊 Vela envolvente detectada en la última vela en {symbol}")
+
+            color_previous = get_candle_color(previous)
+            color_current = get_candle_color(current)
+
+            if color_previous == color_current and color_previous != 'neutral':
+                print(f"✅ Ambas velas son {color_previous.upper()} en {symbol}")
+                send_telegram_message(f"🚨 Confirmación: Long Legged Doji + Envolvente {color_previous.upper()} en {symbol}")
+            else:
+                print(f"❌ Las velas no son del mismo color en {symbol}")
+
+            
+def process_symbol(symbol):
+    if symbol not in LOTES_POR_SIMBOLO:
+        print(f"⚠️ Símbolo no configurado: {symbol}")
+        return
+
+    rates = mt5.copy_rates_from_pos(symbol, TIMEFRAME, 0, NUMBER_OF_CANDLES)
+    if rates is None or len(rates) < 2:
+        print(f"⚠️ Datos insuficientes para {symbol}")
+        return
+
+    data = pd.DataFrame(rates)
+    
+    # Llamada a la función de detección de patrones
+    evaluate_candles(symbol, rates)
+    
+
+    
+def main_loop():
+    
+    print("🚀 Bot de trading corriendo... (Ctrl+C para detener)\n")
+    
+    
+    
+    while True:
+        for symbol in SYMBOLS:
+            print("\n******************************************")
+            print(f"➡️ Analizando símbolo: {symbol}")
+            
+            process_symbol(symbol)
+            
+            time.sleep(SLEEP_INTERVAL)
+        time.sleep(INTERVAL_SECONDS)
+
+if __name__ == "__main__":
+    try:
+        init_mt5()
+        main_loop()
+    except KeyboardInterrupt:
+        print("🚩 Bot detenido por el usuario.")
+    finally:
+        mt5.shutdown()    

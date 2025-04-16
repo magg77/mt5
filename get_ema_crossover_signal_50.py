@@ -6,6 +6,9 @@ import MetaTrader5 as mt5
 import time
 import pandas as pd
 
+#path
+MT5_PATH_A = "C:\\Program Files\\MetaTrader 5 EXNESS\\terminal64.exe"
+
 # --- Configuración del bot ---
 LOTES_POR_SIMBOLO = {
     "XAUUSD": 0.01
@@ -13,8 +16,8 @@ LOTES_POR_SIMBOLO = {
 SYMBOLS = list(LOTES_POR_SIMBOLO.keys())
 
 #orden
-STOP_LOSS_PIPS = 2200
-TAKE_PROFIT_PIPS = 10000
+STOP_LOSS_PIPS = 4000
+TAKE_PROFIT_PIPS = 4000
 
 #tiempos
 INTERVAL_SECONDS = 3
@@ -31,7 +34,7 @@ NUMBER_CANDLES_MOVE_STOPLOSS = 3
 
 def init_mt5():
     """Inicializa la conexión con MetaTrader 5."""
-    if not mt5.initialize():
+    if not mt5.initialize(path=MT5_PATH_A):
         print("❌ No se pudo inicializar MetaTrader 5")
         quit()
 
@@ -194,10 +197,11 @@ def verificar_y_mover_sl(symbol):
             print(f"🔁 SL movido a BE en {symbol} (ticket: {pos.ticket})")
 
 
-def get_ema_and_slope(data: pd.DataFrame, period: int):
+def get_ema_and_slope(data: pd.DataFrame, period: int, slope_window: int = 50):
     """Calcula la EMA y su pendiente."""
     data['EMA'] = data['close'].ewm(span=period, adjust=False).mean()
-    data['EMA_slope'] = data['EMA'].diff()
+    #data['EMA_slope'] = data['EMA'].diff()
+    data['EMA_slope'] = data['EMA'] - data['EMA'].shift(slope_window)
     return data
 
 def is_trending(slope: float, threshold: float = 0.1):
@@ -206,16 +210,42 @@ def is_trending(slope: float, threshold: float = 0.1):
 
 #Esto dice: "Solo opero si la pendiente es al menos el 20% del rango reciente de precios (ATR)..."
 # múltiplo del ATR, que mide la volatilidad reciente del precio, para adaptar el umbral según el mercado
-def is_trending_dynamic(data: pd.DataFrame, slope: float, multiplier: float = 0.2) -> bool:
-    """Evalúa si la pendiente es significativa comparada con la volatilidad (ATR)."""
-    atr = data['high'].rolling(14).max() - data['low'].rolling(14).min()
-    atr_value = atr.iloc[-1]
-    
-    print(f" +++++++++++++ pendiente ema50 = {slope}")
-    print(f" +++++++++++++ valor del atr = {(atr_value * multiplier)}")
-    
-    return abs(slope) >= (atr_value * multiplier)
+def is_trending_dynamic(data: pd.DataFrame, slope: float, multiplier: float = 0.2, min_threshold: float = 0.1) -> bool:
+    """
+    Evalúa si la pendiente de la EMA50 es significativa comparada con la volatilidad (ATR clásico de 50 velas).
+    Se aplica un umbral mínimo absoluto para evitar falsos positivos en mercados con ATR muy bajo.
+    """
+    if len(data) < 51:
+        print("⚠️ No hay suficientes velas para calcular el ATR (mínimo 51)")
+        return False
 
+    # Calcular True Range (TR)
+    high = data['high']
+    low = data['low']
+    close = data['close']
+    prev_close = close.shift(1)
+
+    tr = pd.concat([
+        high - low,
+        abs(high - prev_close),
+        abs(low - prev_close)
+    ], axis=1).max(axis=1)
+
+    # ATR clásico: media simple de TR con ventana de 50
+    atr = tr.rolling(window=50).mean()
+    atr_value = atr.iloc[-1]
+
+    threshold = max(atr_value * multiplier, min_threshold)
+
+    print(f" ++ pendiente ema50 = {slope:.5f}")
+    print(f" ++ ATR(50) * multiplier = {threshold:.5f}")
+
+    if abs(slope) >= threshold:
+        print("✅ Pendiente suficientemente fuerte: se puede operar")
+        return True
+    else:
+        print("🧭 Pendiente débil - evitamos operar")
+        return False
 
 def detect_cross(prev, curr):
     """Detecta cruce de EMA."""
@@ -235,7 +265,7 @@ def process_symbol(symbol):
         return
 
     data = pd.DataFrame(rates)
-    data = get_ema_and_slope(data, EMA_PERIOD)
+    data = get_ema_and_slope(data, EMA_PERIOD, slope_window=50)
 
     prev = data.iloc[-2]
     curr = data.iloc[-1]
@@ -244,7 +274,7 @@ def process_symbol(symbol):
     ema_slope = curr['EMA_slope']
 
     if not (cross_above or cross_below):
-        print(f"🔍 Sin cruce en {symbol}")
+        #print(f"🔍 Sin cruce en {symbol}")
         return
 
     if not is_trending_dynamic(data, ema_slope):
